@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 
 	"arrivo-transit-api/internal/cache"
 	"arrivo-transit-api/internal/config"
@@ -39,6 +40,10 @@ func main() {
 	transitService := services.NewTransitService(ovapiClient, lruCache, redisClient, db)
 	transitHandler := handlers.NewTransitHandler(transitService)
 
+	// Initialize Swagger handler
+	apiSpecPath := filepath.Join("docs", "api.yaml")
+	swaggerHandler := handlers.NewSwaggerHandler(apiSpecPath)
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -48,8 +53,17 @@ func main() {
 		w.Write([]byte("OK"))
 	})
 
+	// API Documentation endpoints
+	r.Get("/swagger/*", swaggerHandler.ServeSwaggerUI())
+	r.Get("/docs/*", swaggerHandler.ServeStaticDocs("docs"))
+
 	// Transit endpoints
 	r.Route("/api/v1", func(r chi.Router) {
+			// Swagger spec endpoint
+			r.Get("/swagger/doc.json", swaggerHandler.ServeOpenAPISpec())
+			r.Get("/swagger/doc.yaml", swaggerHandler.ServeOpenAPISpec())
+			
+			// Transit API endpoints
 			r.Get("/stops/search", transitHandler.SearchStops)
 			r.Get("/stops/nearby", transitHandler.GetNearbyStops)
 			r.Get("/stops/{stopID}/departures", transitHandler.GetDepartures)
