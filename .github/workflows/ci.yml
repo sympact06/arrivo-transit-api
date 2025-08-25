@@ -162,8 +162,8 @@ jobs:
         file: ./docker/api/Dockerfile
         push: true
         tags: |
-          ghcr.io/goarrivo/transit-api/api:latest
-          ghcr.io/goarrivo/transit-api/api:${{ github.sha }}
+          ghcr.io/sympact06/arrivo-transit-api/api:latest
+          ghcr.io/sympact06/arrivo-transit-api/api:${{ github.sha }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -175,8 +175,8 @@ jobs:
         file: ./docker/gtfs-ingestor/Dockerfile
         push: true
         tags: |
-          ghcr.io/goarrivo/transit-api/gtfs-ingestor:latest
-          ghcr.io/goarrivo/transit-api/gtfs-ingestor:${{ github.sha }}
+          ghcr.io/sympact06/arrivo-transit-api/gtfs-ingestor:latest
+          ghcr.io/sympact06/arrivo-transit-api/gtfs-ingestor:${{ github.sha }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -184,6 +184,11 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     
     steps:
     - uses: actions/checkout@v4
@@ -198,6 +203,13 @@ jobs:
     
     - name: Upload Trivy scan results to GitHub Security tab
       uses: github/codeql-action/upload-sarif@v3
-      if: always()
+      if: always() && github.event_name == 'push'
       with:
         sarif_file: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results as artifact (for PRs)
+      uses: actions/upload-artifact@v4
+      if: always() && github.event_name == 'pull_request'
+      with:
+        name: trivy-results
+        path: 'trivy-results.sarif'
