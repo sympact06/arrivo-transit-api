@@ -1,0 +1,127 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Application specific
+/api
+/gtfs-ingestor
+/migrate
+*.log
+*.pid
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+tmp/
+
+# Docker volumes
+postgres-data/
+redis-data/
+
+# GTFS data
+gtfs-data/*.zip
+gtfs-data/*.txt
+!gtfs-data/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Coverage reports
+coverage.out
+coverage.html
+
+# Profiling data
+*.prof
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build artifacts
+dist/
+build/
+
+# Configuration files with secrets
+config.local.yaml
+config.production.yaml
+
+# Kubernetes secrets
+k8s/secrets/
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Local development
+.local/
+
+# Editor backups
+*~
+*.bak
+*.orig
+
+# Node modules (if any frontend tooling)
+node_modules/
+
+# Python cache (if any Python tooling)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
