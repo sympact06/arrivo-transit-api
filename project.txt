@@ -1,0 +1,265 @@
+🎯 Visie (kort)
+
+Arrivo = premium OV-app (iOS eerst, Android later) + Arrivo Transit API als publiek platform.
+Doel: snelle, stabiele, mooie app met AI-slimheid, en een SLA-waardige API waarop je zelf en derden kunnen bouwen (later: betaalde plannen).
+
+🧱 Kernarchitectuur
+
+Taal: Go 1.22+ (API + workers).
+Databronnen: OpenOV/OVapi (realtime, best-effort) + GTFS (statisch).
+Opslag: Postgres 15 + PostGIS (stops/routes/trips/shapes), Redis 7 (cache/limits/queues).
+Edge: Cloudflare (TLS/WAF/CDN, stale-while-revalidate, request collapsing).
+Hosting: Hetzner Cloud. Nu Coolify, later Dokploy zonder gedoe (zelfde containers, externe DB/Redis).
+Observability: OpenTelemetry → Prometheus/Grafana (metrics), Loki (logs), Tempo/Jaeger (traces).
+Security: API keys, rate-limits per key, mTLS intern (als je K8s doet), HSTS/CORS strak.
+Monetization ready: AdMob/RevenueCat in app; Free/Pro/Enterprise plans op API (quota’s, billing hooks).
+
+🧩 Componenten
+
+API Gateway (Go + chi/echo)
+Stateless, read-heavy, korte timeouts, serve cached data first, degrade netjes.
+
+Realtime Worker
+Pollt OVapi (TPC batches), normaliseert, vult Redis, (optioneel) logt history.
+
+GTFS Ingestor
+Periodieke ETL naar Postgres + PostGIS (indexen voor geosearch).
+
+AI-service (optioneel v1.5)
+NLU voor natuurlijke vragen + simple ETA-reliability op basis van historie.
+
+Telemetry Stack
+Prometheus/Grafana/Loki/Tempo (desnoods één VM of als Coolify-app).
+
+⚙️ Go-stack (meningated)
+
+Router: chi
+
+Postgres driver: pgx (+ sqlc voor type-safe queries)
+
+Redis: go-redis v9
+
+Config: envconfig (12-factor)
+
+Logging: zap (JSON), X-Request-ID overal
+
+Metrics/Tracing: otel + prometheus/client_golang
+
+Resilience: sony/gobreaker (circuit breaker), cenkalti/backoff (retry+ jitter)
+
+Validatie: go-playground/validator
+
+Migrations: golang-migrate of Atlas
+
+Build: multi-stage Docker → distroless/static image
+
+🗺️ Data & Caching (SLA-driver)
+
+Lagen
+
+L1 in-proc LRU (10–30s) – heetste keys.
+
+L2 Redis (30–60s realtime; 1–24u statisch).
+
+Edge Cloudflare – cache GET, stale-while-revalidate (60s), request coalescing.
+
+Staleness-policy
+
+Normaal: realtime ≤ 60s.
+
+Incident: serve laatste snapshot met last_updated + “data mogelijk verouderd”.
+
+Stampede-control
+
+Edge collapsing, L2 locks, achtergrond refresh.
+
+🛡️ Resilience & Reliability
+
+Timeout-budget: API 300–600ms doel; upstream call hard cap ±1.5s; Redis ≤300ms.
+
+Circuit breakers rond OVapi; bulkheads (aparte pools) per upstream.
+
+Exponential backoff + jitter; hedged reads (optioneel) op cache.
+
+Graceful degrade: altijd liever “iets” (cached + banner) dan 500’s.
+
+Warmup: prefetch populaire haltes na deploy.
+
+📊 SLO/SLA (v1 targets)
+
+Latency p99: ≤ 200ms (cached), ≤ 500ms (uncached).
+
+Uptime: 99.9% (pad naar 99.95% zodra multi-AZ + edge-optimalisatie staat).
+
+Data staleness: normaal ≤ 60s; incident ≤ 5min met duidelijke banner.
+
+Error budget: 0.1% per maand (v1).
+
+Monitoring/Alerts (Grafana → Discord/Slack)
+
+p99 > threshold (5 min), cache hit < 70% (15 min), breaker open > 1 min, Redis mem > 80%, DB conn saturatie, polling lag te hoog.
+
+🧰 Hosting op Hetzner (Coolify → Dokploy)
+
+Data extern (must):
+
+Hetzner Managed Postgres (PostGIS) + PITR
+
+Hetzner Managed Redis 7 (AOF)
+→ Hierdoor is migreren tussen Coolify en Dokploy triviaal.
+
+Coolify – nu
+
+Apps: arrivo-api, arrivo-worker-realtime, arrivo-worker-gtfs, telemetry
+
+Env: DSN’s naar managed PG/Redis, OTEL/PROM flags
+
+Scaling: 2–3 replicas voor API, LB via Coolify + Cloudflare er vóór
+
+Dokploy – later
+
+Zelfde images, zelfde env, zelfde externen.
+
+Deploy via GitHub Actions → Dokploy webhook.
+
+Traefik/Nginx for routes; Let’s Encrypt of Cloudflare origin certs.
+
+Zero-downtime migratie (samengevat)
+
+Externals first (PG/Redis al managed).
+
+Dokploy staging opzetten (zelfde env), caches warmen.
+
+(Optioneel) Shadow traffic 1–5% via Cloudflare LB.
+
+Cutover DNS/origin switch, TTL laag.
+
+Monitor; rollback = switch terug.
+
+🌐 Edge-laag (Cloudflare)
+
+Proxy ON, HTTP/3, WAF.
+
+Cache GET met Cache-Control + SWR=60.
+
+Request collapsing (beta/Workers) voor hoge burst op zelfde key.
+
+Rate-limit & bot rules op publiek pad (per plan).
+
+🔒 Security & Compliance
+
+API keys per klant/app (quota’s, rotatie).
+
+Per-key rate limits (Redis token bucket) en usage metering.
+
+OAuth2 Client Credentials voor enterprise later.
+
+mTLS intern zodra je K8s inzet.
+
+Secrets in Coolify/Dokploy secret manager of SOPS/Vault.
+
+GDPR: core heeft geen PII; user features (favorieten, alerts) pas met consent.
+
+Backups: PG PITR ≥ 14 dagen; Redis AOF + snapshot; restore-drills doen.
+
+🧪 Testing & Kwaliteit
+
+Unit (mapping/validators), integration (testcontainers: PG/Redis),
+
+Load met k6 (target 200 rps/pod, p99 < 200ms op cached).
+
+Chaos met Toxiproxy (inject latency/errors op OVapi).
+
+Contract stability: versioneer responses; changelog + deprecation window.
+
+🚀 CI/CD & Release
+
+GitHub Actions: lint/test → build → SBOM/security scan → push GHCR → deploy (Coolify/Dokploy webhook).
+
+Blue/Green (poor-man’s): api-blue/api-green + Cloudflare switch.
+
+Semantic versioning + status page + incident runbooks.
+
+📱 App-kant (kort, want focus is infra)
+
+iOS SwiftUI (nu), Android Kotlin (later) of Flutter als je 1 codebase wil.
+
+Ads: AdMob; Premium: RevenueCat (no-brainer).
+
+Push: APNs/FCM; server-throttle & quiet hours.
+
+AI features als premium-value: “wanneer moet ik weg?”, “hoe druk gaat het zijn?”, “samenvatting storing”.
+
+💰 Businessmodel opties
+
+Gratis met ads (laagste drempel).
+
+Pro: ad-free + AI-notificaties + ETA-betrouwbaarheid (paar euro/maand).
+
+API Plans: Free/Pro/Enterprise (requests/day, rps, streams).
+
+Affiliates later (tickets, events), mits netjes.
+
+🗓️ Roadmap (technisch)
+
+Fase 0 – Setup (1–3 dagen)
+
+Repos, Go skeleton, Prom/Loki/Tempo stack, Cloudflare vóór, managed PG/Redis live.
+
+Fase 1 – MVP (1–2 weken)
+
+GTFS ingest + PostGIS indexen.
+
+Realtime poller + Redis cache + breakers.
+
+API read-only, caching, health/metrics, dashboards.
+
+Load/chaos tests → TTL/breakers tunen.
+
+iOS app: basis scherm + favorieten.
+
+Fase 2 – SLA 99.9% (2–4 weken)
+
+Multi-instance API, LB, autoscaling (handmatig of via Dokploy).
+
+Cache warmers, edge rules, alerts strak.
+
+Status page, incident runbooks, on-call light.
+
+Fase 3 – v1.5 (later)
+
+AI-NLU microservice, reliability score, SSE/WebSocket stream (premium).
+
+Canary/Blue-Green, shadow traffic, multiregio verkenning.
+
+✅ Actielijst (nu doen)
+
+Hetzner Managed Postgres + Redis aanzetten (PITR/AOF).
+
+Cloudflare: domein proxied, cache rules (SWR=60), WAF aan.
+
+Coolify: apps (API/worker/ingestor/telemetry) + env met externe DSN’s.
+
+Dashboards & alerts: p99, cache hit, upstream latency, polling lag.
+
+k6 loadtest draaien en grenzen vastleggen (TTL’s, rate-limits per key).
+
+Backups/restore drill 1x uitvoeren.
+
+Release flow in GitHub Actions (build → push → deploy webhook).
+
+💣 Risico’s & mitigatie
+
+Upstream down/traag (OVapi) → breakers + cached snapshots + statusbanner.
+
+Cache stampede → edge collapsing + SWR + background refresh.
+
+Single instance → start minimaal 2 replicas + LB; later Dokploy/K8s.
+
+Data-corruptie → migrations getest, PITR paraat, readonly role voor API.
+
+Kostenexplosie → Redis TTL’s strak, edge-cache op hotspots, quotas per key.
+
+🔚 Samenvatting in 1 alinea
+
+We bouwen Arrivo Transit API in Go op Hetzner, met Postgres+PostGIS en Redis als fundament, Cloudflare als schild en turbo, en Coolify (later Dokploy) als deploy-laag. Het platform is snel, robuust, observabel, en SLA-waardig door meervoudige caching, breakers, strakke timeouts en duidelijke SLO’s. Monetization is ingebouwd (ads/premium/API-plans). Migreren tussen PaaS’en is simpel omdat DB/Redis extern/managed zijn. Klaar om te shippen zonder drama.

@@ -1,0 +1,52 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgres://user:password@postgres:5432/arrivo?sslmode=disable}
+      - REDIS_DSN=${REDIS_DSN:-redis://redis:6379/0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  gtfs-ingestor:
+    build:
+      context: .
+      dockerfile: Dockerfile.gtfs
+    volumes:
+      - ./gtfs-data:/app/gtfs-data
+      - ./internal/database/migrations:/app/internal/database/migrations
+    environment:
+      - POSTGRES_DSN=${POSTGRES_DSN:-postgres://user:password@postgres:5432/arrivo?sslmode=disable}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgis/postgis:15-3.4
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=arrivo
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d arrivo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

@@ -1,0 +1,686 @@
+openapi: 3.0.3
+info:
+  title: Arrivo Transit API
+  description: |
+    Een moderne, high-performance real-time transit API platform voor Nederlandse openbaar vervoer data.
+    
+    ## Features
+    - Real-time vertrektijden en voertuiglocaties
+    - GPS-gebaseerde zoekfunctie voor nabije haltes
+    - Intelligente zoekfunctionaliteit voor haltes en routes
+    - Multi-layer caching voor optimale performance
+    - GTFS en OpenOV/OVapi data integratie
+    
+    ## Authentication
+    API keys zijn vereist voor productie gebruik. Voor development kan de API zonder authenticatie gebruikt worden.
+    
+    ## Rate Limiting
+    - Anonieme requests: 100 requests/minuut
+    - Met API key: 1000 requests/minuut
+    - Premium: 10000 requests/minuut
+    
+    ## Caching
+    Responses worden gecached op meerdere niveaus:
+    - L1 (In-Memory): 5 minuten
+    - L2 (Redis): 15 minuten
+    - L3 (CDN): 60 minuten
+  version: 1.0.0
+  contact:
+    name: Arrivo Support
+    email: support@goarrivo.nl
+    url: https://docs.goarrivo.nl
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Development server
+  - url: https://api.goarrivo.nl/v1
+    description: Production server
+  - url: https://staging-api.goarrivo.nl/v1
+    description: Staging server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Basic health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+  /stops/nearby:
+    get:
+      summary: Zoek nabije haltes
+      description: Zoek haltes binnen een bepaalde radius van een GPS locatie
+      tags:
+        - Stops
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          description: Latitude (WGS84)
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+            example: 52.3676
+        - name: lon
+          in: query
+          required: true
+          description: Longitude (WGS84)
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+            example: 4.9041
+        - name: radius
+          in: query
+          required: false
+          description: Zoekradius in meters
+          schema:
+            type: integer
+            minimum: 50
+            maximum: 5000
+            default: 500
+            example: 500
+        - name: limit
+          in: query
+          required: false
+          description: Maximum aantal resultaten
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+            example: 20
+      responses:
+        '200':
+          description: Lijst van nabije haltes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StopsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /stops/search:
+    get:
+      summary: Zoek haltes op naam
+      description: Zoek haltes op basis van naam of code
+      tags:
+        - Stops
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Zoekterm (naam of code)
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            example: "centraal"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum aantal resultaten
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Lijst van gevonden haltes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StopsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /stops/{stopId}:
+    get:
+      summary: Halte details
+      description: Haal gedetailleerde informatie op van een specifieke halte
+      tags:
+        - Stops
+      parameters:
+        - name: stopId
+          in: path
+          required: true
+          description: Unieke halte identifier
+          schema:
+            type: string
+            example: "9292:31000001"
+      responses:
+        '200':
+          description: Halte details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Stop'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /stops/{stopId}/departures:
+    get:
+      summary: Real-time vertrektijden
+      description: Haal real-time vertrektijden op voor een halte
+      tags:
+        - Real-time
+      parameters:
+        - name: stopId
+          in: path
+          required: true
+          description: Unieke halte identifier
+          schema:
+            type: string
+            example: "9292:31000001"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum aantal vertrektijden
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+        - name: timeWindow
+          in: query
+          required: false
+          description: Tijdvenster in minuten vanaf nu
+          schema:
+            type: integer
+            minimum: 5
+            maximum: 120
+            default: 60
+      responses:
+        '200':
+          description: Lijst van vertrektijden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Departure'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /routes/search:
+    get:
+      summary: Zoek routes
+      description: Zoek routes op basis van naam, nummer of beschrijving
+      tags:
+        - Routes
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Zoekterm
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+            example: "1"
+        - name: limit
+          in: query
+          required: false
+          description: Maximum aantal resultaten
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Lijst van gevonden routes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Route'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /routes/{routeId}:
+    get:
+      summary: Route details
+      description: Haal gedetailleerde informatie op van een specifieke route
+      tags:
+        - Routes
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          description: Unieke route identifier
+          schema:
+            type: string
+            example: "9292:1"
+      responses:
+        '200':
+          description: Route details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Route'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /routes/{routeId}/vehicles:
+    get:
+      summary: Live voertuig tracking
+      description: Haal real-time voertuigposities op voor een route
+      tags:
+        - Real-time
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          description: Unieke route identifier
+          schema:
+            type: string
+            example: "9292:1"
+      responses:
+        '200':
+          description: Lijst van voertuigposities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Vehicle'
+                  meta:
+                    $ref: '#/components/schemas/Meta'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  schemas:
+    Stop:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unieke halte identifier
+          example: "9292:31000001"
+        name:
+          type: string
+          description: Halte naam
+          example: "Amsterdam Centraal"
+        code:
+          type: string
+          description: Halte code
+          example: "ASD"
+        lat:
+          type: number
+          format: double
+          description: Latitude (WGS84)
+          example: 52.3789
+        lon:
+          type: number
+          format: double
+          description: Longitude (WGS84)
+          example: 4.9000
+        platform:
+          type: string
+          description: Platform informatie
+          example: "1a"
+        wheelchair_accessible:
+          type: boolean
+          description: Rolstoel toegankelijk
+          example: true
+        distance:
+          type: number
+          format: double
+          description: Afstand in meters (alleen bij nearby search)
+          example: 245.7
+      required:
+        - id
+        - name
+        - lat
+        - lon
+
+    Route:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unieke route identifier
+          example: "9292:1"
+        agency_id:
+          type: string
+          description: Vervoerder identifier
+          example: "GVB"
+        short_name:
+          type: string
+          description: Korte route naam/nummer
+          example: "1"
+        long_name:
+          type: string
+          description: Volledige route naam
+          example: "Centraal Station - Osdorp"
+        description:
+          type: string
+          description: Route beschrijving
+          example: "Tramlijn 1 van Amsterdam Centraal naar Osdorp"
+        type:
+          type: integer
+          description: GTFS route type (0=tram, 1=metro, 3=bus, etc.)
+          example: 0
+        url:
+          type: string
+          description: Route informatie URL
+          example: "https://www.gvb.nl/lijnen/tram-1"
+        color:
+          type: string
+          description: Route kleur (hex)
+          example: "0000FF"
+        text_color:
+          type: string
+          description: Tekst kleur (hex)
+          example: "FFFFFF"
+      required:
+        - id
+        - short_name
+        - type
+
+    Departure:
+      type: object
+      properties:
+        route_id:
+          type: string
+          description: Route identifier
+          example: "9292:1"
+        route_short_name:
+          type: string
+          description: Route nummer/naam
+          example: "1"
+        trip_id:
+          type: string
+          description: Trip identifier
+          example: "9292:trip_123"
+        headsign:
+          type: string
+          description: Bestemming
+          example: "Osdorp"
+        scheduled_departure:
+          type: string
+          format: date-time
+          description: Geplande vertrektijd
+          example: "2024-01-15T14:30:00Z"
+        estimated_departure:
+          type: string
+          format: date-time
+          description: Verwachte vertrektijd
+          example: "2024-01-15T14:32:00Z"
+        delay_minutes:
+          type: integer
+          description: Vertraging in minuten
+          example: 2
+        platform:
+          type: string
+          description: Platform/perron
+          example: "1a"
+        realtime:
+          type: boolean
+          description: Real-time data beschikbaar
+          example: true
+      required:
+        - route_id
+        - route_short_name
+        - headsign
+        - scheduled_departure
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Voertuig identifier
+          example: "9292:vehicle_456"
+        route_id:
+          type: string
+          description: Route identifier
+          example: "9292:1"
+        trip_id:
+          type: string
+          description: Trip identifier
+          example: "9292:trip_123"
+        lat:
+          type: number
+          format: double
+          description: Huidige latitude
+          example: 52.3676
+        lon:
+          type: number
+          format: double
+          description: Huidige longitude
+          example: 4.9041
+        bearing:
+          type: number
+          format: double
+          description: Richting in graden (0-360)
+          example: 45.5
+        speed:
+          type: number
+          format: double
+          description: Snelheid in km/h
+          example: 25.0
+        timestamp:
+          type: string
+          format: date-time
+          description: Tijdstip van laatste update
+          example: "2024-01-15T14:30:00Z"
+        occupancy:
+          type: string
+          enum: ["EMPTY", "MANY_SEATS_AVAILABLE", "FEW_SEATS_AVAILABLE", "STANDING_ROOM_ONLY", "CRUSHED_STANDING_ROOM_ONLY", "FULL", "NOT_ACCEPTING_PASSENGERS"]
+          description: Bezettingsgraad
+          example: "FEW_SEATS_AVAILABLE"
+      required:
+        - id
+        - route_id
+        - lat
+        - lon
+        - timestamp
+
+    StopsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Stop'
+        meta:
+          $ref: '#/components/schemas/Meta'
+        links:
+          $ref: '#/components/schemas/Links'
+
+    Meta:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Aantal items in response
+          example: 10
+        total:
+          type: integer
+          description: Totaal aantal beschikbare items
+          example: 150
+        page:
+          type: integer
+          description: Huidige pagina
+          example: 1
+        cached:
+          type: boolean
+          description: Response uit cache
+          example: true
+        cache_ttl:
+          type: integer
+          description: Cache TTL in seconden
+          example: 300
+        generated_at:
+          type: string
+          format: date-time
+          description: Tijdstip van generatie
+          example: "2024-01-15T14:30:00Z"
+
+    Links:
+      type: object
+      properties:
+        self:
+          type: string
+          description: Link naar huidige pagina
+          example: "/api/v1/stops/nearby?lat=52.3676&lon=4.9041"
+        next:
+          type: string
+          description: Link naar volgende pagina
+          example: "/api/v1/stops/nearby?lat=52.3676&lon=4.9041&page=2"
+        prev:
+          type: string
+          description: Link naar vorige pagina
+          example: "/api/v1/stops/nearby?lat=52.3676&lon=4.9041&page=1"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Error code
+              example: "INVALID_COORDINATES"
+            message:
+              type: string
+              description: Human-readable error message
+              example: "Invalid latitude or longitude provided"
+            details:
+              type: object
+              description: Additional error details
+            timestamp:
+              type: string
+              format: date-time
+              description: Error timestamp
+              example: "2024-01-15T14:30:00Z"
+      required:
+        - error
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "INVALID_PARAMETERS"
+              message: "Invalid request parameters provided"
+              timestamp: "2024-01-15T14:30:00Z"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "NOT_FOUND"
+              message: "The requested resource was not found"
+              timestamp: "2024-01-15T14:30:00Z"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "INTERNAL_ERROR"
+              message: "An internal server error occurred"
+              timestamp: "2024-01-15T14:30:00Z"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key voor authenticatie
+
+security:
+  - ApiKeyAuth: []
+  - {} # Allow unauthenticated access for development
+
+tags:
+  - name: Health
+    description: Service health en status endpoints
+  - name: Stops
+    description: Halte gerelateerde endpoints
+  - name: Routes
+    description: Route gerelateerde endpoints
+  - name: Real-time
+    description: Real-time data endpoints
+
+externalDocs:
+  description: Volledige documentatie
+  url: https://docs.arrivo.nl
